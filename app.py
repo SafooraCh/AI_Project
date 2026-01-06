@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.linear_model import LogisticRegression
@@ -47,8 +45,16 @@ if uploaded_file is not None:
         st.dataframe(df.head(10))
         
         # Weather distribution
-        fig = px.pie(df, names='weather', title='Weather Type Distribution')
-        st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Weather Type Distribution")
+        weather_counts = df['weather'].value_counts()
+        
+        fig, ax = plt.subplots(figsize=(8, 6))
+        colors = sns.color_palette('Set2', len(weather_counts))
+        ax.pie(weather_counts.values, labels=weather_counts.index, autopct='%1.1f%%',
+               startangle=90, colors=colors)
+        ax.set_title('Weather Type Distribution')
+        st.pyplot(fig)
+        plt.close()
     
     # Preprocessing
     if st.sidebar.button("🔄 Train Models", type="primary"):
@@ -81,7 +87,8 @@ if uploaded_file is not None:
             model_scores = {}
             trained_models = {}
             
-            for name, model in models.items():
+            progress_bar = st.progress(0)
+            for idx, (name, model) in enumerate(models.items()):
                 if name == "Random Forest":
                     model.fit(X_train, y_train)
                     predictions = model.predict(X_test)
@@ -92,6 +99,7 @@ if uploaded_file is not None:
                 acc = accuracy_score(y_test, predictions)
                 model_scores[name] = acc
                 trained_models[name] = model
+                progress_bar.progress((idx + 1) / len(models))
             
             # Store in session state
             st.session_state.models_trained = True
@@ -123,23 +131,28 @@ if st.session_state.models_trained:
         st.metric("Random Forest", f"{scores['Random Forest']:.2%}")
     
     # Bar chart
-    fig = go.Figure(data=[
-        go.Bar(
-            x=list(scores.keys()),
-            y=list(scores.values()),
-            marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1'],
-            text=[f"{v:.2%}" for v in scores.values()],
-            textposition='auto',
-        )
-    ])
-    fig.update_layout(
-        title="Model Accuracy Comparison",
-        xaxis_title="Model",
-        yaxis_title="Accuracy",
-        yaxis_range=[0, 1],
-        height=400
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    models_list = list(scores.keys())
+    values_list = list(scores.values())
+    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1']
+    
+    bars = ax.bar(models_list, values_list, color=colors, alpha=0.8, edgecolor='black')
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{height:.2%}',
+                ha='center', va='bottom', fontweight='bold')
+    
+    ax.set_ylabel('Accuracy', fontsize=12)
+    ax.set_xlabel('Model', fontsize=12)
+    ax.set_title('Model Accuracy Comparison', fontsize=14, fontweight='bold')
+    ax.set_ylim(0, 1)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close()
     
     # Model selection and prediction
     st.header("🔮 Make Predictions")
@@ -191,17 +204,31 @@ if st.session_state.models_trained:
             'Probability': probabilities
         }).sort_values('Probability', ascending=False)
         
-        fig = px.bar(
-            prob_df,
-            x='Weather',
-            y='Probability',
-            color='Probability',
-            color_continuous_scale='Viridis',
-            text=prob_df['Probability'].apply(lambda x: f'{x:.2%}')
-        )
-        fig.update_traces(textposition='outside')
-        fig.update_layout(height=400, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        # Create bar chart
+        fig, ax = plt.subplots(figsize=(10, 6))
+        colors_gradient = plt.cm.viridis(prob_df['Probability'].values)
+        bars = ax.barh(prob_df['Weather'], prob_df['Probability'], color=colors_gradient)
+        
+        # Add percentage labels
+        for i, (weather, prob) in enumerate(zip(prob_df['Weather'], prob_df['Probability'])):
+            ax.text(prob + 0.01, i, f'{prob:.2%}', va='center', fontweight='bold')
+        
+        ax.set_xlabel('Probability', fontsize=12)
+        ax.set_ylabel('Weather Type', fontsize=12)
+        ax.set_title(f'Prediction Probabilities - {selected_model}', fontsize=14, fontweight='bold')
+        ax.set_xlim(0, max(prob_df['Probability']) + 0.1)
+        ax.grid(axis='x', alpha=0.3, linestyle='--')
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close()
+        
+        # Show input summary
+        with st.expander("📝 Input Summary"):
+            input_df = pd.DataFrame({
+                'Feature': ['Precipitation', 'Max Temperature', 'Min Temperature', 'Wind Speed'],
+                'Value': [f"{precipitation} mm", f"{temp_max} °C", f"{temp_min} °C", f"{wind} km/h"]
+            })
+            st.table(input_df)
     
     # Detailed model analysis
     with st.expander("📊 Detailed Model Analysis"):
@@ -228,7 +255,7 @@ if st.session_state.models_trained:
             output_dict=True
         )
         report_df = pd.DataFrame(report).transpose()
-        st.dataframe(report_df.style.highlight_max(axis=0, color='lightgreen'))
+        st.dataframe(report_df.style.background_gradient(cmap='YlGn', subset=['precision', 'recall', 'f1-score']))
         
         # Confusion matrix
         st.subheader("Confusion Matrix")
@@ -242,12 +269,15 @@ if st.session_state.models_trained:
             cmap='Blues',
             xticklabels=st.session_state.le.classes_,
             yticklabels=st.session_state.le.classes_,
-            ax=ax
+            ax=ax,
+            cbar_kws={'label': 'Count'}
         )
-        plt.xlabel('Predicted')
-        plt.ylabel('Actual')
-        plt.title(f'Confusion Matrix: {selected_analysis_model}')
+        ax.set_xlabel('Predicted', fontsize=12)
+        ax.set_ylabel('Actual', fontsize=12)
+        ax.set_title(f'Confusion Matrix: {selected_analysis_model}', fontsize=14, fontweight='bold')
+        plt.tight_layout()
         st.pyplot(fig)
+        plt.close()
 
 else:
     st.info("👆 Please upload a dataset and click 'Train Models' to get started!")
@@ -273,4 +303,12 @@ st.sidebar.info("""
 3. Select a model
 4. Adjust weather parameters
 5. Click 'Predict Weather'
+
+**Models Available:**
+- Logistic Regression
+- Support Vector Machine
+- Random Forest
 """)
+
+st.sidebar.markdown("---")
+st.sidebar.success("Built with Streamlit 🎈")
