@@ -1,314 +1,359 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-import seaborn as sns
-import matplotlib.pyplot as plt
+import pickle
+from datetime import datetime
+import plotly.graph_objects as go
+import plotly.express as px
 
 # Page configuration
-st.set_page_config(page_title="Weather Prediction App", page_icon="🌤️", layout="wide")
+st.set_page_config(
+    page_title="Weather Prediction App",
+    page_icon="🌦️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+    <style>
+    .main {
+        padding: 0rem 1rem;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 3rem;
+        padding: 0 1.5rem;
+    }
+    .prediction-box {
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Load models
+@st.cache_resource
+def load_models():
+    try:
+        with open('logistic_regression_model.pkl', 'rb') as f:
+            log_reg = pickle.load(f)
+        with open('random_forest_model.pkl', 'rb') as f:
+            rf_model = pickle.load(f)
+        with open('linear_regression_model.pkl', 'rb') as f:
+            lin_reg = pickle.load(f)
+        with open('scaler_classification.pkl', 'rb') as f:
+            scaler_class = pickle.load(f)
+        with open('scaler_regression.pkl', 'rb') as f:
+            scaler_reg = pickle.load(f)
+        with open('feature_info.pkl', 'rb') as f:
+            feature_info = pickle.load(f)
+        return log_reg, rf_model, lin_reg, scaler_class, scaler_reg, feature_info
+    except FileNotFoundError:
+        st.error("⚠️ Model files not found. Please ensure all .pkl files are in the app directory.")
+        return None, None, None, None, None, None
+
+# Load models
+log_reg, rf_model, lin_reg, scaler_class, scaler_reg, feature_info = load_models()
 
 # Title and description
-st.title("🌤️ Seattle Weather Prediction App")
-st.markdown("### Predict weather conditions using Machine Learning models")
+st.title("🌦️ Weather Prediction & Analysis System")
+st.markdown("### AI-Powered Weather Forecasting | By Safoora (2330-0022)")
+st.markdown("---")
 
-# Sidebar for file upload and model selection
-st.sidebar.header("⚙️ Configuration")
-
-# File uploader
-uploaded_file = st.sidebar.file_uploader("Upload Weather Dataset (CSV)", type=['csv'])
-
-# Initialize session state for models
-if 'models_trained' not in st.session_state:
-    st.session_state.models_trained = False
-    st.session_state.models = {}
-    st.session_state.scaler = None
-    st.session_state.le = None
-    st.session_state.model_scores = {}
-
-# Load and process data
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+# Sidebar
+with st.sidebar:
+    st.header("📋 Project Information")
+    st.info("""
+    **Project:** Weather Prediction using ML
     
-    # Display dataset info
-    with st.expander("📊 Dataset Overview"):
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Records", len(df))
-        col2.metric("Features", len(df.columns))
-        col3.metric("Weather Types", df['weather'].nunique())
-        
-        st.dataframe(df.head(10))
-        
-        # Weather distribution
-        st.subheader("Weather Type Distribution")
-        weather_counts = df['weather'].value_counts()
-        
-        fig, ax = plt.subplots(figsize=(8, 6))
-        colors = sns.color_palette('Set2', len(weather_counts))
-        ax.pie(weather_counts.values, labels=weather_counts.index, autopct='%1.1f%%',
-               startangle=90, colors=colors)
-        ax.set_title('Weather Type Distribution')
-        st.pyplot(fig)
-        plt.close()
+    **Student:** Safoora
     
-    # Preprocessing
-    if st.sidebar.button("🔄 Train Models", type="primary"):
-        with st.spinner("Training models... Please wait"):
-            # Encoding
-            le = LabelEncoder()
-            df['weather_encoded'] = le.fit_transform(df['weather'])
-            
-            # Features and target
-            X = df[['precipitation', 'temp_max', 'temp_min', 'wind']]
-            y = df['weather_encoded']
-            
-            # Train-test split
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42
-            )
-            
-            # Scaling
-            scaler = StandardScaler()
-            X_train_scaled = scaler.fit_transform(X_train)
-            X_test_scaled = scaler.transform(X_test)
-            
-            # Train models
-            models = {
-                "Logistic Regression": LogisticRegression(max_iter=1000),
-                "Support Vector Machine": SVC(kernel='linear', probability=True),
-                "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42)
-            }
-            
-            model_scores = {}
-            trained_models = {}
-            
-            progress_bar = st.progress(0)
-            for idx, (name, model) in enumerate(models.items()):
-                if name == "Random Forest":
-                    model.fit(X_train, y_train)
-                    predictions = model.predict(X_test)
-                else:
-                    model.fit(X_train_scaled, y_train)
-                    predictions = model.predict(X_test_scaled)
-                
-                acc = accuracy_score(y_test, predictions)
-                model_scores[name] = acc
-                trained_models[name] = model
-                progress_bar.progress((idx + 1) / len(models))
-            
-            # Store in session state
-            st.session_state.models_trained = True
-            st.session_state.models = trained_models
-            st.session_state.scaler = scaler
-            st.session_state.le = le
-            st.session_state.model_scores = model_scores
-            st.session_state.X_test = X_test
-            st.session_state.X_test_scaled = X_test_scaled
-            st.session_state.y_test = y_test
-            
-            st.success("✅ Models trained successfully!")
-            st.rerun()
-
-# Main app functionality
-if st.session_state.models_trained:
+    **Roll No:** 2330-0022
     
-    # Display model performance
-    st.header("📈 Model Performance Comparison")
+    **Models Used:**
+    - Logistic Regression
+    - Random Forest
+    - Linear Regression
+    """)
     
-    col1, col2, col3 = st.columns(3)
-    scores = st.session_state.model_scores
-    
-    with col1:
-        st.metric("Logistic Regression", f"{scores['Logistic Regression']:.2%}")
-    with col2:
-        st.metric("Support Vector Machine", f"{scores['Support Vector Machine']:.2%}")
-    with col3:
-        st.metric("Random Forest", f"{scores['Random Forest']:.2%}")
-    
-    # Bar chart
-    fig, ax = plt.subplots(figsize=(10, 5))
-    models_list = list(scores.keys())
-    values_list = list(scores.values())
-    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1']
-    
-    bars = ax.bar(models_list, values_list, color=colors, alpha=0.8, edgecolor='black')
-    
-    # Add value labels on bars
-    for bar in bars:
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-                f'{height:.2%}',
-                ha='center', va='bottom', fontweight='bold')
-    
-    ax.set_ylabel('Accuracy', fontsize=12)
-    ax.set_xlabel('Model', fontsize=12)
-    ax.set_title('Model Accuracy Comparison', fontsize=14, fontweight='bold')
-    ax.set_ylim(0, 1)
-    ax.grid(axis='y', alpha=0.3, linestyle='--')
-    plt.tight_layout()
-    st.pyplot(fig)
-    plt.close()
-    
-    # Model selection and prediction
-    st.header("🔮 Make Predictions")
-    
-    selected_model = st.selectbox(
-        "Select Model for Prediction",
-        options=list(st.session_state.models.keys()),
-        index=2  # Default to Random Forest
+    st.markdown("---")
+    st.header("🎯 Prediction Type")
+    prediction_type = st.radio(
+        "Select prediction task:",
+        ["Rain Prediction (Classification)", "Temperature Prediction (Regression)"]
     )
+
+# Main content
+if prediction_type == "Rain Prediction (Classification)":
+    st.header("🌧️ Rain Prediction")
+    st.markdown("Predict whether it will rain based on weather conditions")
     
-    # Input features
     col1, col2 = st.columns(2)
     
     with col1:
-        precipitation = st.slider("Precipitation (mm)", 0.0, 50.0, 5.0, 0.1)
-        temp_max = st.slider("Maximum Temperature (°C)", -10.0, 40.0, 20.0, 0.5)
+        st.subheader("Input Weather Parameters")
+        
+        precipitation = st.slider(
+            "Precipitation (mm)",
+            min_value=0.0,
+            max_value=50.0,
+            value=0.0,
+            step=0.1,
+            help="Amount of precipitation in millimeters"
+        )
+        
+        temp_max = st.slider(
+            "Maximum Temperature (°C)",
+            min_value=-10.0,
+            max_value=40.0,
+            value=15.0,
+            step=0.5
+        )
+        
+        temp_min = st.slider(
+            "Minimum Temperature (°C)",
+            min_value=-15.0,
+            max_value=30.0,
+            value=8.0,
+            step=0.5
+        )
+        
+        wind = st.slider(
+            "Wind Speed",
+            min_value=0.0,
+            max_value=10.0,
+            value=3.0,
+            step=0.1
+        )
     
     with col2:
-        temp_min = st.slider("Minimum Temperature (°C)", -10.0, 40.0, 10.0, 0.5)
-        wind = st.slider("Wind Speed (km/h)", 0.0, 15.0, 5.0, 0.1)
+        st.subheader("Date Information")
+        
+        selected_date = st.date_input(
+            "Select Date",
+            value=datetime.now(),
+            min_value=datetime(2020, 1, 1),
+            max_value=datetime(2030, 12, 31)
+        )
+        
+        month = selected_date.month
+        day_of_year = selected_date.timetuple().tm_yday
+        temp_range = temp_max - temp_min
+        
+        st.metric("Month", month)
+        st.metric("Day of Year", day_of_year)
+        st.metric("Temperature Range", f"{temp_range:.1f}°C")
+        
+        model_choice = st.selectbox(
+            "Select Model",
+            ["Random Forest (Recommended)", "Logistic Regression"]
+        )
     
-    # Predict button
-    if st.button("🎯 Predict Weather", type="primary"):
-        # Prepare input
-        input_data = np.array([[precipitation, temp_max, temp_min, wind]])
-        
-        # Get model
-        model = st.session_state.models[selected_model]
-        
-        # Make prediction
-        if selected_model == "Random Forest":
-            prediction = model.predict(input_data)
-            probabilities = model.predict_proba(input_data)[0]
-        else:
-            input_scaled = st.session_state.scaler.transform(input_data)
-            prediction = model.predict(input_scaled)
-            probabilities = model.predict_proba(input_scaled)[0]
-        
-        # Decode prediction
-        predicted_weather = st.session_state.le.inverse_transform(prediction)[0]
-        
-        # Display result
-        st.success(f"### Predicted Weather: **{predicted_weather.upper()}** 🌈")
-        
-        # Probability distribution
-        st.subheader("Prediction Probabilities")
-        prob_df = pd.DataFrame({
-            'Weather': st.session_state.le.classes_,
-            'Probability': probabilities
-        }).sort_values('Probability', ascending=False)
-        
-        # Create bar chart
-        fig, ax = plt.subplots(figsize=(10, 6))
-        colors_gradient = plt.cm.viridis(prob_df['Probability'].values)
-        bars = ax.barh(prob_df['Weather'], prob_df['Probability'], color=colors_gradient)
-        
-        # Add percentage labels
-        for i, (weather, prob) in enumerate(zip(prob_df['Weather'], prob_df['Probability'])):
-            ax.text(prob + 0.01, i, f'{prob:.2%}', va='center', fontweight='bold')
-        
-        ax.set_xlabel('Probability', fontsize=12)
-        ax.set_ylabel('Weather Type', fontsize=12)
-        ax.set_title(f'Prediction Probabilities - {selected_model}', fontsize=14, fontweight='bold')
-        ax.set_xlim(0, max(prob_df['Probability']) + 0.1)
-        ax.grid(axis='x', alpha=0.3, linestyle='--')
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close()
-        
-        # Show input summary
-        with st.expander("📝 Input Summary"):
-            input_df = pd.DataFrame({
-                'Feature': ['Precipitation', 'Max Temperature', 'Min Temperature', 'Wind Speed'],
-                'Value': [f"{precipitation} mm", f"{temp_max} °C", f"{temp_min} °C", f"{wind} km/h"]
-            })
-            st.table(input_df)
+    st.markdown("---")
     
-    # Detailed model analysis
-    with st.expander("📊 Detailed Model Analysis"):
-        selected_analysis_model = st.selectbox(
-            "Select Model for Detailed Analysis",
-            options=list(st.session_state.models.keys()),
-            key="analysis_model"
-        )
-        
-        model = st.session_state.models[selected_analysis_model]
-        
-        # Make predictions on test set
-        if selected_analysis_model == "Random Forest":
-            y_pred = model.predict(st.session_state.X_test)
-        else:
-            y_pred = model.predict(st.session_state.X_test_scaled)
-        
-        # Classification report
-        st.subheader("Classification Report")
-        report = classification_report(
-            st.session_state.y_test,
-            y_pred,
-            target_names=st.session_state.le.classes_,
-            output_dict=True
-        )
-        report_df = pd.DataFrame(report).transpose()
-        st.dataframe(report_df.style.background_gradient(cmap='YlGn', subset=['precision', 'recall', 'f1-score']))
-        
-        # Confusion matrix
-        st.subheader("Confusion Matrix")
-        cm = confusion_matrix(st.session_state.y_test, y_pred)
-        
-        fig, ax = plt.subplots(figsize=(10, 8))
-        sns.heatmap(
-            cm,
-            annot=True,
-            fmt='d',
-            cmap='Blues',
-            xticklabels=st.session_state.le.classes_,
-            yticklabels=st.session_state.le.classes_,
-            ax=ax,
-            cbar_kws={'label': 'Count'}
-        )
-        ax.set_xlabel('Predicted', fontsize=12)
-        ax.set_ylabel('Actual', fontsize=12)
-        ax.set_title(f'Confusion Matrix: {selected_analysis_model}', fontsize=14, fontweight='bold')
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close()
+    if st.button("🔮 Predict Rain", type="primary", use_container_width=True):
+        if log_reg and rf_model and scaler_class:
+            # Prepare input data
+            input_data = np.array([[precipitation, temp_max, temp_min, wind, 
+                                   month, day_of_year, temp_range]])
+            input_scaled = scaler_class.transform(input_data)
+            
+            # Make prediction
+            if model_choice == "Random Forest (Recommended)":
+                prediction = rf_model.predict(input_scaled)[0]
+                probability = rf_model.predict_proba(input_scaled)[0]
+            else:
+                prediction = log_reg.predict(input_scaled)[0]
+                probability = log_reg.predict_proba(input_scaled)[0]
+            
+            # Display results
+            col1, col2, col3 = st.columns([1, 2, 1])
+            
+            with col2:
+                if prediction == 1:
+                    st.markdown("""
+                        <div style='background-color: #1e3a8a; padding: 2rem; 
+                        border-radius: 1rem; text-align: center;'>
+                            <h1 style='color: white; margin: 0;'>🌧️ RAIN EXPECTED</h1>
+                            <p style='color: #93c5fd; font-size: 1.2rem; margin-top: 1rem;'>
+                                High probability of rainfall
+                            </p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                        <div style='background-color: #047857; padding: 2rem; 
+                        border-radius: 1rem; text-align: center;'>
+                            <h1 style='color: white; margin: 0;'>☀️ NO RAIN</h1>
+                            <p style='color: #86efac; font-size: 1.2rem; margin-top: 1rem;'>
+                                Clear weather expected
+                            </p>
+                        </div>
+                    """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
+            # Probability visualization
+            st.subheader("📊 Prediction Confidence")
+            
+            fig = go.Figure(go.Bar(
+                x=['No Rain', 'Rain'],
+                y=[probability[0] * 100, probability[1] * 100],
+                text=[f'{probability[0]*100:.1f}%', f'{probability[1]*100:.1f}%'],
+                textposition='auto',
+                marker_color=['#10b981', '#3b82f6']
+            ))
+            
+            fig.update_layout(
+                title="Probability Distribution",
+                yaxis_title="Probability (%)",
+                xaxis_title="Prediction",
+                height=400,
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Feature contribution
+            st.subheader("🔍 Input Summary")
+            summary_data = {
+                'Feature': ['Precipitation', 'Max Temp', 'Min Temp', 'Wind Speed', 
+                           'Month', 'Day of Year', 'Temp Range'],
+                'Value': [f'{precipitation} mm', f'{temp_max}°C', f'{temp_min}°C', 
+                         f'{wind}', month, day_of_year, f'{temp_range:.1f}°C']
+            }
+            st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
 
-else:
-    st.info("👆 Please upload a dataset and click 'Train Models' to get started!")
+else:  # Temperature Prediction
+    st.header("🌡️ Temperature Prediction")
+    st.markdown("Predict maximum temperature based on weather conditions")
     
-    # Sample data format
-    st.subheader("Expected Data Format")
-    sample_data = pd.DataFrame({
-        'date': ['2012-01-01', '2012-01-02', '2012-01-03'],
-        'precipitation': [0.0, 10.9, 0.8],
-        'temp_max': [12.8, 10.6, 11.7],
-        'temp_min': [5.0, 2.8, 7.2],
-        'wind': [4.7, 4.5, 2.3],
-        'weather': ['drizzle', 'rain', 'sun']
-    })
-    st.dataframe(sample_data)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Input Weather Parameters")
+        
+        precipitation = st.slider(
+            "Precipitation (mm)",
+            min_value=0.0,
+            max_value=50.0,
+            value=0.0,
+            step=0.1
+        )
+        
+        temp_min = st.slider(
+            "Minimum Temperature (°C)",
+            min_value=-15.0,
+            max_value=30.0,
+            value=8.0,
+            step=0.5
+        )
+        
+        wind = st.slider(
+            "Wind Speed",
+            min_value=0.0,
+            max_value=10.0,
+            value=3.0,
+            step=0.1
+        )
+    
+    with col2:
+        st.subheader("Date Information")
+        
+        selected_date = st.date_input(
+            "Select Date",
+            value=datetime.now(),
+            min_value=datetime(2020, 1, 1),
+            max_value=datetime(2030, 12, 31)
+        )
+        
+        month = selected_date.month
+        day_of_year = selected_date.timetuple().tm_yday
+        
+        st.metric("Month", month)
+        st.metric("Day of Year", day_of_year)
+    
+    st.markdown("---")
+    
+    if st.button("🔮 Predict Temperature", type="primary", use_container_width=True):
+        if lin_reg and scaler_reg:
+            # Prepare input data
+            input_data = np.array([[precipitation, temp_min, wind, month, day_of_year]])
+            input_scaled = scaler_reg.transform(input_data)
+            
+            # Make prediction
+            predicted_temp = lin_reg.predict(input_scaled)[0]
+            
+            # Display result
+            col1, col2, col3 = st.columns([1, 2, 1])
+            
+            with col2:
+                st.markdown(f"""
+                    <div style='background-color: #dc2626; padding: 2rem; 
+                    border-radius: 1rem; text-align: center;'>
+                        <h1 style='color: white; margin: 0;'>🌡️ {predicted_temp:.1f}°C</h1>
+                        <p style='color: #fca5a5; font-size: 1.2rem; margin-top: 1rem;'>
+                            Predicted Maximum Temperature
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
+            # Temperature gauge
+            st.subheader("📊 Temperature Gauge")
+            
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number+delta",
+                value=predicted_temp,
+                domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': "Predicted Max Temperature (°C)"},
+                delta={'reference': temp_min, 'increasing': {'color': "red"}},
+                gauge={
+                    'axis': {'range': [-10, 40]},
+                    'bar': {'color': "darkred"},
+                    'steps': [
+                        {'range': [-10, 0], 'color': "lightblue"},
+                        {'range': [0, 15], 'color': "lightgreen"},
+                        {'range': [15, 25], 'color': "yellow"},
+                        {'range': [25, 40], 'color': "orange"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "red", 'width': 4},
+                        'thickness': 0.75,
+                        'value': predicted_temp
+                    }
+                }
+            ))
+            
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Input summary
+            st.subheader("🔍 Input Summary")
+            summary_data = {
+                'Feature': ['Precipitation', 'Min Temp', 'Wind Speed', 'Month', 'Day of Year'],
+                'Value': [f'{precipitation} mm', f'{temp_min}°C', f'{wind}', month, day_of_year]
+            }
+            st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+            
+            # Additional insights
+            st.info(f"""
+            **Insights:**
+            - Temperature range: {predicted_temp - temp_min:.1f}°C
+            - Season: {'Winter' if month in [12, 1, 2] else 'Spring' if month in [3, 4, 5] else 'Summer' if month in [6, 7, 8] else 'Autumn'}
+            - Wind influence: {'High' if wind > 5 else 'Moderate' if wind > 3 else 'Low'}
+            """)
 
 # Footer
-st.sidebar.markdown("---")
-st.sidebar.info("""
-**How to use:**
-1. Upload your weather dataset (CSV)
-2. Click 'Train Models'
-3. Select a model
-4. Adjust weather parameters
-5. Click 'Predict Weather'
-
-**Models Available:**
-- Logistic Regression
-- Support Vector Machine
-- Random Forest
-""")
-
-st.sidebar.markdown("---")
-st.sidebar.success("Built with Streamlit 🎈")
+st.markdown("---")
+st.markdown("""
+    <div style='text-align: center; color: #6b7280;'>
+        <p>Weather Prediction System | AI Semester Project | Safoora (2330-0022)</p>
+        <p>Powered by Machine Learning | Data Source: Seattle Weather Dataset</p>
+    </div>
+""", unsafe_allow_html=True)
